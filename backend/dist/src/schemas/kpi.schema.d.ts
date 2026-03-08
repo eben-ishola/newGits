@@ -44,6 +44,7 @@ export declare class PerformanceKpi {
         value: string;
         outcome: string;
     }>;
+    scoredBy?: string;
     actualValue?: number | null;
     isActualValueLocked?: boolean;
     lockedBy?: string;

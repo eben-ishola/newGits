@@ -84,6 +84,7 @@ export declare class PerformanceService {
     private normalizeMatchKey;
     private collectUserIdentifiers;
     private buildSupervisorScopeFilter;
+    private getSubordinateChainIds;
     private buildUserAccessFilter;
     private normalizeEntityIdStrict;
     private normalizeEntityId;

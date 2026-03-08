@@ -233,7 +233,7 @@ let PerformanceService = PerformanceService_1 = class PerformanceService {
         });
         return ids;
     }
-    buildSupervisorScopeFilter(scope) {
+    buildSupervisorScopeFilter(scope, subordinateEmployeeIds) {
         const normalized = this.normalizeIdentifier(scope);
         if (!normalized)
             return null;
@@ -252,7 +252,45 @@ let PerformanceService = PerformanceService_1 = class PerformanceService {
                 reviewStage: { $in: ['hr', 'completed'] },
             });
         }
+        if (subordinateEmployeeIds?.length) {
+            conditions.push({ employeeId: { $in: subordinateEmployeeIds } });
+        }
         return conditions.length ? { $or: conditions } : null;
+    }
+    async getSubordinateChainIds(supervisorId, maxDepth = 5) {
+        const objectId = this.normalizeUserId(supervisorId);
+        if (!objectId)
+            return [];
+        const allSubordinateIds = new Set();
+        let currentLevelIds = [objectId];
+        for (let depth = 0; depth < maxDepth; depth++) {
+            if (!currentLevelIds.length)
+                break;
+            const subordinates = await this.userModel
+                .find({
+                $or: [
+                    { supervisorId: { $in: currentLevelIds } },
+                    { supervisor2Id: { $in: currentLevelIds } },
+                ],
+            })
+                .select('_id staffId')
+                .lean()
+                .exec();
+            if (!subordinates.length)
+                break;
+            const nextLevelIds = [];
+            for (const sub of subordinates) {
+                const id = String(sub._id);
+                if (!allSubordinateIds.has(id)) {
+                    allSubordinateIds.add(id);
+                    if (sub.staffId)
+                        allSubordinateIds.add(String(sub.staffId));
+                    nextLevelIds.push(sub._id);
+                }
+            }
+            currentLevelIds = nextLevelIds;
+        }
+        return Array.from(allSubordinateIds);
     }
     buildUserAccessFilter(user) {
         const identifiers = this.collectUserIdentifiers(user);
@@ -627,7 +665,7 @@ let PerformanceService = PerformanceService_1 = class PerformanceService {
         }
         return filters;
     }
-    assertCanAccessReview(user, review) {
+    async assertCanAccessReview(user, review) {
         if (this.isPrivilegedUser(user))
             return;
         const identifiers = this.collectUserIdentifiers(user);
@@ -660,6 +698,13 @@ let PerformanceService = PerformanceService_1 = class PerformanceService {
         if (hrReviewerIds.includes(actorId) &&
             ['hr', 'completed'].includes(String(stage))) {
             return;
+        }
+        const subordinateIds = await this.getSubordinateChainIds(actorId);
+        if (subordinateIds.length && employeeKey) {
+            const employeeIdNorm = employeeKey.toLowerCase();
+            const isSubordinate = subordinateIds.some((id) => id.toLowerCase() === employeeIdNorm);
+            if (isSubordinate)
+                return;
         }
         throw new common_1.ForbiddenException('You do not have permission to access this performance review.');
     }
@@ -1107,8 +1152,11 @@ let PerformanceService = PerformanceService_1 = class PerformanceService {
                 throw new common_1.ForbiddenException('You do not have permission to access these reviews.');
             }
         }
+        const subordinateIds = supervisorScope
+            ? await this.getSubordinateChainIds(supervisorScope)
+            : [];
         const scopeFilter = supervisorScope
-            ? this.buildSupervisorScopeFilter(supervisorScope)
+            ? this.buildSupervisorScopeFilter(supervisorScope, subordinateIds)
             : null;
         const accessFilter = !isPrivileged && !scopeFilter
             ? this.buildUserAccessFilter(user)
@@ -1140,7 +1188,7 @@ let PerformanceService = PerformanceService_1 = class PerformanceService {
             throw new common_1.NotFoundException('Performance review not found');
         }
         if (user) {
-            this.assertCanAccessReview(user, review);
+            await this.assertCanAccessReview(user, review);
         }
         return review;
     }
@@ -1362,10 +1410,17 @@ let PerformanceService = PerformanceService_1 = class PerformanceService {
         }
         const mutableUpdates = updates;
         const isActorPrivileged = this.isPrivilegedUser(actor);
+        let didResetStage = false;
+        let shouldDeleteKpiResults = false;
         if (isActorPrivileged && mutableUpdates.resetStaffScores) {
             review.employeeScore = null;
             review.coreValueRatings = [];
             review.coreValueSnapshotAt = undefined;
+            review.reviewStage = 'employee';
+            review.reviewStageUpdatedAt = new Date();
+            review.status = 'Pending Employee Review';
+            shouldDeleteKpiResults = true;
+            didResetStage = true;
         }
         if (isActorPrivileged && mutableUpdates.resetAllScores) {
             review.rating = null;
@@ -1377,6 +1432,24 @@ let PerformanceService = PerformanceService_1 = class PerformanceService {
             review.coreValueSnapshotAt = undefined;
             review.reviewerCoreValueRatings = [];
             review.reviewerCoreValueSnapshotAt = undefined;
+            review.reviewStage = 'employee';
+            review.reviewStageUpdatedAt = new Date();
+            review.status = 'Pending Employee Review';
+            shouldDeleteKpiResults = true;
+            didResetStage = true;
+        }
+        if (isActorPrivileged &&
+            !mutableUpdates.resetStaffScores &&
+            !mutableUpdates.resetAllScores &&
+            Object.prototype.hasOwnProperty.call(mutableUpdates, 'rating') &&
+            mutableUpdates.rating === null) {
+            review.rating = null;
+            review.reviewerScore = null;
+            review.finalScore = null;
+            review.status = 'In Progress';
+            review.reviewStage = 'supervisor';
+            review.reviewStageUpdatedAt = new Date();
+            didResetStage = true;
         }
         delete mutableUpdates.resetStaffScores;
         delete mutableUpdates.resetAllScores;
@@ -1497,7 +1570,7 @@ let PerformanceService = PerformanceService_1 = class PerformanceService {
             delete updates.reviewerCoreValueRatings;
         }
         let nextStage = null;
-        if (hasReviewerUpdates) {
+        if (hasReviewerUpdates && !didResetStage) {
             if (previousStage === 'supervisor' && isReviewer1) {
                 if (reviewer2Id) {
                     nextStage = 'supervisor2';
@@ -1528,8 +1601,32 @@ let PerformanceService = PerformanceService_1 = class PerformanceService {
             review.reviewStageUpdatedAt = new Date();
         }
         Object.assign(review, updates);
-        await this.applyComputedScores(review);
+        if (!didResetStage) {
+            await this.applyComputedScores(review);
+        }
         const saved = await review.save();
+        if (shouldDeleteKpiResults) {
+            const empId = (saved.employeeId ?? '').trim();
+            const cycleId = saved.appraisalCycleId
+                ? String(saved.appraisalCycleId)
+                : '';
+            if (empId && cycleId) {
+                const cycleKpis = await this.kpiModel
+                    .find({ appraisalCycleId: new mongoose_2.Types.ObjectId(cycleId) })
+                    .select('_id')
+                    .lean()
+                    .exec();
+                const kpiIds = cycleKpis.map((k) => k._id);
+                if (kpiIds.length) {
+                    await this.kpiResultModel
+                        .deleteMany({ employeeId: empId, kpiId: { $in: kpiIds } })
+                        .exec();
+                    await this.kpiModel
+                        .updateMany({ _id: { $in: kpiIds }, actualValue: { $ne: null } }, { $set: { actualValue: null, isActualValueLocked: false }, $unset: { lockedBy: 1, lockedAt: 1 } })
+                        .exec();
+                }
+            }
+        }
         const stageChanged = Boolean(nextStage && nextStage !== previousStage);
         const statusChangedToCompleted = String(previousStatus ?? '').toLowerCase() !== 'completed' &&
             String(saved.status ?? '').toLowerCase() === 'completed';

@@ -75,7 +75,7 @@ export declare class KpiController {
         totalPages: number;
         availableWeights: number[];
     }>;
-    export(search: string | undefined, title: string | undefined, type: string | undefined, employeeId: string | undefined, roleId: string | undefined, levelId: string | undefined, departmentId: string | undefined, departmentName: string | undefined, branchId: string | undefined, branchName: string | undefined, category: string | undefined, entity: string | undefined, res: Response): Promise<void>;
+    export(search: string | undefined, title: string | undefined, type: string | undefined, employeeId: string | undefined, roleId: string | undefined, levelId: string | undefined, departmentId: string | undefined, departmentName: string | undefined, branchId: string | undefined, branchName: string | undefined, category: string | undefined, entity: string | undefined, appraisalCycleId: string | undefined, res: Response): Promise<void>;
     createCategory(body: {
         name: string;
         description?: string;
@@ -104,6 +104,11 @@ export declare class KpiController {
     }>;
     bulkUpload(file: Express.Multer.File, entity?: string, appraisalCycleId?: string, appraisalCycleName?: string): Promise<{
         created: number;
+        skipped: number;
+        updated?: undefined;
+    } | {
+        created: number;
+        updated: number;
         skipped: number;
     }>;
 }

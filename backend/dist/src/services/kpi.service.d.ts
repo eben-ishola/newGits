@@ -49,6 +49,7 @@ type CreateKpiInput = {
     lockedBy?: string;
     appraisalCycleId?: string;
     appraisalCycleName?: string;
+    scoredBy?: string;
 };
 type UpdateKpiInput = Partial<CreateKpiInput>;
 type KpiListFilters = Partial<{
@@ -205,6 +206,11 @@ export declare class KpiService {
     }>;
     bulkCreateFromCsv(rows: Array<Record<string, string>>, entity?: string, appraisalCycleId?: string, appraisalCycleName?: string): Promise<{
         created: number;
+        skipped: number;
+        updated?: undefined;
+    } | {
+        created: number;
+        updated: number;
         skipped: number;
     }>;
 }

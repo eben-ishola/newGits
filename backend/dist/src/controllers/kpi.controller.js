@@ -82,7 +82,7 @@ let KpiController = class KpiController {
             weightFilter: Number.isFinite(parsedWeight) ? parsedWeight : undefined,
         });
     }
-    async export(search, title, type, employeeId, roleId, levelId, departmentId, departmentName, branchId, branchName, category, entity, res) {
+    async export(search, title, type, employeeId, roleId, levelId, departmentId, departmentName, branchId, branchName, category, entity, appraisalCycleId, res) {
         const csv = await this.kpiService.exportKpis({
             search,
             title,
@@ -96,6 +96,7 @@ let KpiController = class KpiController {
             branchName,
             category,
             entity,
+            appraisalCycleId,
         });
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', 'attachment; filename="performance-kpis.csv"');
@@ -251,9 +252,10 @@ __decorate([
     __param(9, (0, common_1.Query)('branchName')),
     __param(10, (0, common_1.Query)('category')),
     __param(11, (0, common_1.Query)('entity')),
-    __param(12, (0, common_1.Res)()),
+    __param(12, (0, common_1.Query)('appraisalCycleId')),
+    __param(13, (0, common_1.Res)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String, String, String, String, String, String, String, String, String, String, String, Object]),
+    __metadata("design:paramtypes", [String, String, String, String, String, String, String, String, String, String, String, String, String, Object]),
     __metadata("design:returntype", Promise)
 ], KpiController.prototype, "export", null);
 __decorate([

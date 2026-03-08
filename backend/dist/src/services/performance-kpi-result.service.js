@@ -169,7 +169,7 @@ let PerformanceKpiResultService = class PerformanceKpiResultService {
                 .limit(safeLimit)
                 .populate({
                 path: 'kpiId',
-                select: 'title description targetValue measurementUnit weight type kpa collectionSource externalKey scoringMethod scoreDirection actualValue',
+                select: 'title description targetValue measurementUnit weight type kpa collectionSource externalKey scoringMethod scoreDirection actualValue scoredBy',
             })
                 .lean()
                 .exec(),
@@ -233,11 +233,15 @@ let PerformanceKpiResultService = class PerformanceKpiResultService {
         }
         if (updates.actualValue !== undefined) {
             const actualValue = normalizeString(updates.actualValue);
-            result.actualValue = parseNumber(actualValue);
+            const parsedActual = parseNumber(actualValue);
+            result.actualValue = parsedActual;
             const score = this.computeScore(actualValue ?? undefined, kpi);
             result.achievement = score.achievement;
             result.score = score.score;
             result.source = 'reviewer';
+            if (parsedActual !== null && parsedActual !== kpi.actualValue) {
+                await this.kpiModel.updateOne({ _id: kpi._id }, { $set: { actualValue: parsedActual } });
+            }
         }
         if (updates.isActualValueLocked !== undefined) {
             result.isActualValueLocked = Boolean(updates.isActualValueLocked);

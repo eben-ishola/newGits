@@ -873,7 +873,31 @@ let KpiService = class KpiService {
     async exportKpis(filters) {
         const mongoFilters = this.buildListFilters(filters);
         const records = await this.kpiModel.find(mongoFilters).sort({ createdAt: -1 }).lean().exec();
+        const employeeIds = [
+            ...new Set(records
+                .map((item) => item.employeeId)
+                .filter((id) => Boolean(id))),
+        ];
+        const staffIdMap = new Map();
+        if (employeeIds.length) {
+            const objectIds = employeeIds
+                .filter((id) => mongoose_2.Types.ObjectId.isValid(id))
+                .map((id) => new mongoose_2.Types.ObjectId(id));
+            if (objectIds.length) {
+                const users = await this.userModel
+                    .find({ _id: { $in: objectIds } })
+                    .select('_id staffId')
+                    .lean()
+                    .exec();
+                for (const u of users) {
+                    if (u?.staffId) {
+                        staffIdMap.set(String(u._id), String(u.staffId));
+                    }
+                }
+            }
+        }
         const headers = [
+            'kpi_id',
             'employee_id',
             'employee_name',
             'role_id',
@@ -903,6 +927,8 @@ let KpiService = class KpiService {
             'start_date',
             'end_date',
             'has_conditions',
+            'scored_by',
+            'appraisal_cycle',
             'created_at',
             'updated_at',
         ];
@@ -921,8 +947,12 @@ let KpiService = class KpiService {
             if (item.branchId || item.branchName)
                 scopes.add('branch');
             const scopeValue = this.serializeScopes(scopes);
+            const resolvedStaffId = item.employeeId
+                ? (staffIdMap.get(String(item.employeeId)) ?? String(item.employeeId))
+                : '';
             return [
-                item.employeeId ?? '',
+                String(item._id ?? ''),
+                resolvedStaffId,
                 item.employeeName ?? '',
                 item.roleId ?? '',
                 item.roleName ?? '',
@@ -951,6 +981,8 @@ let KpiService = class KpiService {
                 item.startDate ? new Date(item.startDate).toISOString() : '',
                 item.endDate ? new Date(item.endDate).toISOString() : '',
                 item.hasConditions ? 'yes' : 'no',
+                item.scoredBy ?? 'any',
+                item.appraisalCycleName ?? '',
                 item.createdAt ? new Date(item.createdAt).toISOString() : '',
                 item.updatedAt ? new Date(item.updatedAt).toISOString() : '',
             ];
@@ -1084,6 +1116,9 @@ let KpiService = class KpiService {
             type: updates.type ?? kpi.type,
         };
         Object.assign(kpi, assignable);
+        if (updates.scoredBy !== undefined) {
+            kpi.scoredBy = updates.scoredBy;
+        }
         if (updates.actualValue !== undefined)
             kpi.actualValue = updates.actualValue;
         if (updates.isActualValueLocked !== undefined) {
@@ -1155,7 +1190,9 @@ let KpiService = class KpiService {
             const normalizedRoleName = explicitRoleName ?? inferredRoleName;
             const scopes = this.scopesFromRow(row);
             const derivedType = scopes.size ? this.deriveTypeFromScopes(scopes) : undefined;
+            const kpiId = this.normalizeText(row.kpi_id) ?? this.normalizeText(row.kpiid);
             return {
+                kpiId,
                 title,
                 description,
                 type: derivedType ?? rawType,
@@ -1194,6 +1231,7 @@ let KpiService = class KpiService {
                 branchName: this.normalizeText(row.branch_name) ??
                     this.normalizeText(row.branch),
                 actualValue: this.parseOptionalNumber(row.actual_value ?? row.actualvalue ?? row.actual),
+                scoredBy: this.normalizeText(row.scored_by) ?? this.normalizeText(row.scoredby) ?? 'any',
             };
         });
         const uploadEntity = this.normalizeText(entity);
@@ -1322,7 +1360,8 @@ let KpiService = class KpiService {
                 });
             });
         }
-        const docs = [];
+        const toCreate = [];
+        const toUpdate = [];
         for (const row of candidates) {
             let target;
             try {
@@ -1349,8 +1388,9 @@ let KpiService = class KpiService {
                     resolvedCategoryName = category.name;
                 }
             }
-            docs.push({
-                ...row,
+            const { kpiId, ...restRow } = row;
+            const doc = {
+                ...restRow,
                 ...target,
                 category: categoryRef,
                 categoryName: resolvedCategoryName,
@@ -1363,13 +1403,31 @@ let KpiService = class KpiService {
                 conditions: [],
                 ...(entity ? { entity } : {}),
                 ...(appraisalCycleId ? { appraisalCycleId: new mongoose_2.Types.ObjectId(appraisalCycleId), appraisalCycleName } : {}),
-            });
+            };
+            if (kpiId && mongoose_2.Types.ObjectId.isValid(kpiId)) {
+                toUpdate.push({ id: kpiId, data: doc });
+            }
+            else {
+                toCreate.push(doc);
+            }
         }
-        if (!docs.length) {
-            return { created: 0, skipped: rows.length };
+        let created = 0;
+        let updated = 0;
+        if (toUpdate.length) {
+            const bulkOps = toUpdate.map(({ id, data }) => ({
+                updateOne: {
+                    filter: { _id: new mongoose_2.Types.ObjectId(id) },
+                    update: { $set: data },
+                },
+            }));
+            const result = await this.kpiModel.bulkWrite(bulkOps, { ordered: false });
+            updated = result.modifiedCount ?? 0;
         }
-        const inserted = await this.kpiModel.insertMany(docs, { ordered: false });
-        return { created: inserted.length, skipped: rows.length - inserted.length };
+        if (toCreate.length) {
+            const inserted = await this.kpiModel.insertMany(toCreate, { ordered: false });
+            created = inserted.length;
+        }
+        return { created, updated, skipped: rows.length - created - updated };
     }
 };
 exports.KpiService = KpiService;

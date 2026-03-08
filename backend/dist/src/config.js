@@ -2,9 +2,9 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.config = void 0;
 exports.config = {
-    neutralDB: "mongodb://admin:admin101!@127.0.0.1:27017/hrms?authSource=admin",
-    authDB: "mongodb://admin:admin101!@127.0.0.1:27017/hrms?authSource=admin",
-    mainDB: "mongodb://admin:admin101!@127.0.0.1:27017/hrms?authSource=admin",
+    neutralDB: "mongodb://admin:admin101!@hrms.addosser.com:27017/hrms?authSource=admin",
+    authDB: "mongodb://admin:admin101!@hrms.addosser.com:27017/hrms?authSource=admin",
+    mainDB: "mongodb://admin:admin101!@hrms.addosser.com:27017/hrms?authSource=admin",
     incentivesDB: "mongodb://authDB:__authDB@196.1.177.226:27117/incentives?authMechanism=DEFAULT&authSource=admin",
     savingsDB: "mongodb://authDB:__authDB@196.1.177.226:27117/saveDB?authMechanism=DEFAULT&authSource=admin",
     cbaUrl: process.env.CBA_URL ?? "https://controlapi.addosser.com/access-data",

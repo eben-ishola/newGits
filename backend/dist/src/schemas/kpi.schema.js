@@ -172,6 +172,10 @@ __decorate([
     __metadata("design:type", Array)
 ], PerformanceKpi.prototype, "conditions", void 0);
 __decorate([
+    (0, mongoose_1.Prop)({ default: 'any' }),
+    __metadata("design:type", String)
+], PerformanceKpi.prototype, "scoredBy", void 0);
+__decorate([
     (0, mongoose_1.Prop)({ type: Number, default: null }),
     __metadata("design:type", Number)
 ], PerformanceKpi.prototype, "actualValue", void 0);
